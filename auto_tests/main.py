@@ -1,7 +1,7 @@
 from auto_tests import data_coll, functions, config, mongo_scripts
 import requests
 from json import loads
-from time import sleep, gmtime, strftime
+from time import sleep, gmtime, strftime, time
 import pandas as pd
 from json.decoder import JSONDecodeError
 import logging
@@ -10,14 +10,7 @@ urllib3.disable_warnings()
 
 # TODO: добавить функционал сравнения результатов (с выделением нужных ключей)
 # TODO: переписать логирование (разграничение уровней ошибок)
-
-login = config.login
-password = config.password
-
-credentials = {
-    "login": login,
-    "password": password
-}
+# TODO: переписать append'ы результата
 
 # set up logging
 logging.basicConfig(filename='auto_tests.log', filemode='a',
@@ -28,7 +21,7 @@ logger = logging.getLogger(__name__)
 def auto_test(data_frame, sso, api, website, current_user):
     result = pd.DataFrame()
     session = requests.Session()  # Открытие сессии
-    r = session.post(sso, data=credentials, timeout=5)
+    r = session.post(sso, data={"login": config.login, "password": config.password}, timeout=5)
     logger.info("session started with code {}".format(int(r.status_code)))
 
     # cookies для запроса
@@ -37,7 +30,7 @@ def auto_test(data_frame, sso, api, website, current_user):
 
     for i in range(0, data_frame.shape[0]):
         # сбор тела запроса метрики
-        logger.info("job {} inititated".format(int(i)))
+        logger.info("job {} initiated".format(int(i)))
         pipeline_var = [{"$group": {"_id": "$metrics.{}.variables".format(data_frame.loc[i, 'metrics_id'])}},
                         {"$project": {"_id": 0, "variables": "$_id"}}]
         aggregation = functions.aggregate_var(config.db_qa, config.collection_dashboards, pipeline_var)
@@ -51,11 +44,20 @@ def auto_test(data_frame, sso, api, website, current_user):
         start_job = session.post(api+'startJob', json=body, timeout=60)
         logger.info("job {} started with code {}".format(int(i), int(start_job.status_code)))
         if int(start_job.status_code) in [403, 500]:
+            logger.info("job {} broke with code {}".format(int(i), start_job.status_code))
             result = result.append(pd.DataFrame([dict(
                 zip(['dashboard_id', 'metric_id', 'answer_prod', 'metric_prod_link', 'code_prod'],
                     [data_frame.loc[i, 'dashboard'], data_frame.loc[i, 'metrics_id'], start_job.text,
                      website + str(data_frame.loc[i, 'dashboard']) + '/' + str(
                          data_frame.loc[i, 'metrics_id']), start_job.status_code]))]), ignore_index=True)
+        elif int(start_job.status_code) in [502]:
+            logger.info("job {} initiated".format(int(i)))
+            result = result.append(pd.DataFrame([dict(
+                zip(['dashboard_id', 'metric_id', 'answer_prod', 'metric_prod_link', 'code_prod'],
+                    [data_frame.loc[i, 'dashboard'], data_frame.loc[i, 'metrics_id'], start_job.text,
+                     website+str(data_frame.loc[i, 'dashboard'])+'/'+str(data_frame.loc[i, 'metrics_id']),
+                     start_job.status_code]))]), ignore_index=True)
+            sleep(120)
         else:
             try:
                 job = loads(start_job.text)['id']
@@ -66,15 +68,15 @@ def auto_test(data_frame, sso, api, website, current_user):
                 break
 
             # Получение ответа на запрос
-            sleeper = 0
+            sleeper = time()/60
             while True:
                 poll_job = session.get(api+'pollJob/'+job, timeout=60)
-                logger.info("job {} polled with code {} in {}".format(int(i), int(start_job.status_code), int(sleeper)))
+                logger.info("job {} polled with code {}".format(int(i), int(poll_job.status_code)))
                 if poll_job.status_code != 204:
                     break
-                sleeper += 1
                 sleep(1)
-
+            logger.info("job {} polled with code {} in {}".format(int(i),
+                                                                  int(poll_job.status_code), int(sleeper-(time()/60))))
             result = result.append(pd.DataFrame([dict(
                 zip(['dashboard_id', 'metric_id', 'answer_prod', 'metric_prod_link', 'code_prod'],
                     [data_frame.loc[i, 'dashboard'], data_frame.loc[i, 'metrics_id'], poll_job.text,
@@ -87,11 +89,11 @@ def main():
     df = data_coll.collect_data(config.db_prod, config.collection_dashboards, config.collection_collections,
                         mongo_scripts.pipeline_dash, config.black_list)
     df_answer_prod = auto_test(df, sso='https://sso.biocad.ru/login', api='https://analytics.biocad.ru/api/',
-                               website='https://analytics.biocad.ru/dashboard/', current_user=login)
+                               website='https://analytics.biocad.ru/dashboard/', current_user=config.login)
     df_answer_prod.to_excel('autotests_prod_{Time}.xlsx'.format(Time=strftime("%Y-%m-%d", gmtime())), index=False)
     df_answer_qa = auto_test(df, sso='https://stand.sso.biocad.ru/login', api='https://analytics-qa.biocad.ru/api/',
-                             website='https://analytics-qa.biocad.ru/dashboard/', current_user=login)
-    df_answer_qa.to_excel('autotests_prod_{Time}.xlsx'.format(Time=strftime("%Y-%m-%d", gmtime())), index=False)
+                             website='https://analytics-qa.biocad.ru/dashboard/', current_user=config.login)
+    df_answer_qa.to_excel('autotests_qa_{Time}.xlsx'.format(Time=strftime("%Y-%m-%d", gmtime())), index=False)
     return 'Done'
 
 
