@@ -1,4 +1,4 @@
-from auto_tests import functions
+import auto_tests.functions as functions
 from pandas.io.json import json_normalize
 
 

@@ -7,10 +7,13 @@
 certifi==2019.9.11        # via requests
 chardet==3.0.4            # via requests
 entrypoints==0.3          # via flake8
+et-xmlfile==1.0.1         # via openpyxl
 flake8==3.7.8
 idna==2.8                 # via requests
+jdcal==1.4.1              # via openpyxl
 mccabe==0.6.1             # via flake8
 numpy==1.17.2             # via pandas
+openpyxl==3.0.0
 pandas==0.25.1
 pycodestyle==2.5.0        # via flake8
 pyflakes==2.1.1           # via flake8

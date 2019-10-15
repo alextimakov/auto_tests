@@ -10,7 +10,7 @@
 
 `cd ./auto_tests`
 
-`python3 -m venv ./`
+`python3 -m venv venv`
 
 3. Зайдите в созданное окружение и установите pip-tools:
 
@@ -25,11 +25,18 @@
 
 ### Возникающие ошибки
 
-1. Ошибка pip
+#### Ошибка pip
 - При установке пакетов через pip возникает ошибка типа 
 `pip install fails with “connection error: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed (_ssl.c:598)”`. 
 
 - Решаем с помощью установки в обход сертификатов:
 `pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org <package_name>`
 
-- Работает и в случае с прямой установкой через pip, так и через pip-sync
+- Работает и в случае с прямой установкой через pip, так и через `pip-sync`
+
+
+### Работа с проектом
+1. Все адреса, логины и пароли тянутся из `config.py`. 
+Он включен в `.gitconfig` не просто так, просьба не пушить его в репозиторий.
+Его скину каждому лично.
+  

@@ -1,4 +1,7 @@
-from auto_tests import data_coll, functions, config, mongo_scripts
+import auto_tests.data_coll as data_coll
+import auto_tests.functions as functions
+import auto_tests.config as config
+import auto_tests.mongo_scripts as mongo_scripts
 import requests
 from json import loads
 from time import sleep, gmtime, strftime, time
@@ -51,13 +54,13 @@ def auto_test(data_frame, sso, api, website, current_user):
                      website + str(data_frame.loc[i, 'dashboard']) + '/' + str(
                          data_frame.loc[i, 'metrics_id']), start_job.status_code]))]), ignore_index=True)
         elif int(start_job.status_code) in [502]:
-            logger.info("job {} initiated".format(int(i)))
+            logger.info("job {} failed with code {}".format(int(i), int(start_job.status_code)))
             result = result.append(pd.DataFrame([dict(
                 zip(['dashboard_id', 'metric_id', 'answer_prod', 'metric_prod_link', 'code_prod'],
                     [data_frame.loc[i, 'dashboard'], data_frame.loc[i, 'metrics_id'], start_job.text,
                      website+str(data_frame.loc[i, 'dashboard'])+'/'+str(data_frame.loc[i, 'metrics_id']),
                      start_job.status_code]))]), ignore_index=True)
-            sleep(120)
+            sleep(180)
         else:
             try:
                 job = loads(start_job.text)['id']
@@ -68,7 +71,7 @@ def auto_test(data_frame, sso, api, website, current_user):
                 break
 
             # Получение ответа на запрос
-            sleeper = time()/60
+            sleeper = time()
             while True:
                 poll_job = session.get(api+'pollJob/'+job, timeout=60)
                 logger.info("job {} polled with code {}".format(int(i), int(poll_job.status_code)))
@@ -76,7 +79,7 @@ def auto_test(data_frame, sso, api, website, current_user):
                     break
                 sleep(1)
             logger.info("job {} polled with code {} in {}".format(int(i),
-                                                                  int(poll_job.status_code), int(sleeper-(time()/60))))
+                                                                  int(poll_job.status_code), int(sleeper-time())))
             result = result.append(pd.DataFrame([dict(
                 zip(['dashboard_id', 'metric_id', 'answer_prod', 'metric_prod_link', 'code_prod'],
                     [data_frame.loc[i, 'dashboard'], data_frame.loc[i, 'metrics_id'], poll_job.text,
