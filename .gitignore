@@ -94,6 +94,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+pyvenv.cfg
 
 # Spyder project settings
 .spyderproject
@@ -117,3 +118,6 @@ auto_tests/config.py
 # virtualenv folders:
 */whbot/
 news_bot/
+
+# data files:
+*.xlsx

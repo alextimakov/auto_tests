@@ -69,3 +69,5 @@ def read_mongo(db, collection, query={}, output={}, no_id=False):
     return df
 
 
+def compare_results(qa, prod):
+    return 0 if str(qa) != str(prod) else 1

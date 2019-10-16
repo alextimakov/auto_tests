@@ -1,3 +1,6 @@
+import sys, os
+sys.path.append(os.path.abspath('.'))
+
 import auto_tests.functions as functions
 from pandas.io.json import json_normalize
 
