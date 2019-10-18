@@ -70,11 +70,12 @@ def read_mongo(db, collection, query={}, output={}, no_id=False):
     return df
 
 
-def write_results(final, i, dashboard, metrics_id, job, website, prefix):
+def write_results(final, i, dashboard, metrics_id, text, timer, job, website, prefix):
     result = pd.DataFrame(
-        data=[[dashboard, metrics_id, job.text, website+str(dashboard)+'/'+str(metrics_id), job.status_code]],
-        index=[i], columns=['dashboard_id', 'metric_id', 'answer_{}'.format(prefix), 'metric_{}_link'.format(prefix),
-                            'code_{}'.format(prefix)])
+        data=[[dashboard, metrics_id, text, timer, website+str(dashboard)+'/'+str(metrics_id), job.status_code]],
+        index=[i],
+        columns=['dashboard_id', 'metric_id', 'answer_{}'.format(prefix), 'timer', 'metric_{}_link'.format(prefix),
+            'code_{}'.format(prefix)])
     final = final.append(result)
     return final
 

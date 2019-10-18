@@ -7,7 +7,7 @@ from pandas.io.json import json_normalize
 
 def collect_data(db, collection_dashboards, collection_collections, pipeline, black_list):
     # Сбор dashboard_id, metrics_id с prod
-    df_prod = functions.mongo_request(db, collection_dashboards, pipeline, 'metrics_id')
+    df_prod = functions.mongo_request(db, collection_dashboards, pipeline, 'metric_id')
 
     # Собираем все модули
     cursor_collections = functions.read_mongo(db, collection_collections,
