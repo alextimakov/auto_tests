@@ -24,7 +24,6 @@ import getpass
 # TODO: написать алёрты на мониторинг выполнения скрипта
 # TODO: переписать def main() корректно
 # TODO: актуализировать setup.py, сделать автоматически
-# TODO: логирование - прописать исполняющего скрипт пользователя
 # TODO: логирование - оценить возможность развернуть ELK и складывать логи туда
 # TODO: логирование - добавить факт наличия пост-обработчика в метрике
 
@@ -34,13 +33,8 @@ logging.basicConfig(filename='auto_tests.log', filemode='a',
 logger = logging.getLogger(__name__)
 
 def auto_test(data_frame, sso, api, website, user, password, prefix):
-    # form names
-    answer = 'answer_{}'.format(prefix)
-    link = 'metric_{}_link'.format(prefix)
-    code = 'code_{}'.format(prefix)
-    result = pd.DataFrame(columns=['dashboard_id', 'metric_id', answer, link, code])
-
     # run session
+    result = pd.DataFrame()
     session = requests.Session()
     r = session.post(sso, data={"login": user, "password": password}, timeout=5)
     logger.info("session started with code {} by {}".format(int(r.status_code), user))
@@ -67,14 +61,10 @@ def auto_test(data_frame, sso, api, website, user, password, prefix):
         logger.info("job {} started with code {} by {}".format(int(i), int(start_job.status_code), user))
         if int(start_job.status_code) in [403, 500]:
             logger.info("job {} broke with code {}".format(int(i), start_job.status_code))
-            temp = pd.DataFrame(data=[[dashboard, metrics_id, start_job.text, website+str(dashboard)+'/'+str(metrics_id),
-                start_job.status_code]], index=[i], columns=['dashboard_id', 'metric_id', answer, link, code])
-            result = result.append(temp)
+            result = functions.write_results(result, i, dashboard, metrics_id, start_job, website, prefix)
         elif int(start_job.status_code) in [502]:
             logger.info("job {} failed with code {}".format(int(i), int(start_job.status_code)))
-            temp = pd.DataFrame(data=[[dashboard, metrics_id, start_job.text, website+str(dashboard)+'/'+str(metrics_id),
-                start_job.status_code]], index=[i], columns=['dashboard_id', 'metric_id', answer, link, code])
-            result = result.append(temp)
+            result = functions.write_results(result, i, dashboard, metrics_id, start_job, website, prefix)
             sleep(180)
         else:
             try:
@@ -93,9 +83,7 @@ def auto_test(data_frame, sso, api, website, user, password, prefix):
                 sleep(1)
             logger.info("job {} polled with code {} in {} sec for metric {}".format(int(i), int(poll_job.status_code),
                                                                                     int(time()-sleeper), metrics_id))
-            temp = pd.DataFrame(data=[[dashboard, metrics_id, start_job.text, website+str(dashboard)+'/'+str(metrics_id),
-                start_job.status_code]], index=[i], columns=['dashboard_id', 'metric_id', answer, link, code])
-            result = result.append(temp)
+            result = functions.write_results(result, i, dashboard, metrics_id, poll_job, website, prefix)
     return result
 
 
@@ -103,19 +91,23 @@ def main():
     df = data_coll.collect_data(config.db_prod, config.collection_dashboards, config.collection_collections,
                                 mongo_scripts.pipeline_dash, config.black_list)
     df = df.head(5)
+    df_processor = functions.mongo_request(config.db_prod, config.collection_dashboards,
+                                           mongo_scripts.pipeline_processor)
     login: str = getpass.getuser() + '@biocad.ru'
     password: str = getpass.getpass()
     df_answer_prod = auto_test(df, sso='https://sso.biocad.ru/login', api='https://analytics.biocad.ru/api/',
                                website='https://analytics.biocad.ru/dashboard/', user=login, password=password,
                                prefix='prod')
+    df_answer_prod = df_answer_prod.merge(df_processor, how='left', on=['dashboard_id', 'metric_id'])
     df_answer_prod.to_excel('autotests_prod_{Time}.xlsx'.format(Time=strftime("%Y-%m-%d", gmtime())), index=False)
-    df_answer_qa = auto_test(df, sso='https://stand.sso.biocad.ru/login', api='https://analytics-qa.biocad.ru/api/',
-                             website='https://analytics-qa.biocad.ru/dashboard/', current_user=config.login,
-                             prefix='qa')
-    df_answer_qa.to_excel('autotests_qa_{Time}.xlsx'.format(Time=strftime("%Y-%m-%d", gmtime())), index=False)
-    df_answer_all = df_answer_qa.merge(df_answer_prod, how='left', on=['dashboard_id', 'metric_id'])
-    df_answer_all['correct'] = [*map(functions.compare_results, df_answer_all['answer_qa'], df_answer_all['answer_prod'])]
-    df_answer_all.to_excel('autotests_all_{Time}.xlsx'.format(Time=strftime("%Y-%m-%d", gmtime())), index=False)
+    # df_answer_qa = auto_test(df, sso='https://stand.sso.biocad.ru/login', api='https://analytics-qa.biocad.ru/api/',
+    #                          website='https://analytics-qa.biocad.ru/dashboard/', current_user=config.login,
+    #                          prefix='qa')
+    # df_answer_qa.to_excel('autotests_qa_{Time}.xlsx'.format(Time=strftime("%Y-%m-%d", gmtime())), index=False)
+    # df_answer_all = df_answer_qa.merge(df_answer_prod, how='left', on=['dashboard_id', 'metric_id'])
+    # df_answer_all['correct'] = [*map(functions.compare_results, df_answer_all['answer_qa'], df_answer_all['answer_prod'])]
+    # df_answer_all.merge(df_processor, how='left', on=['dashboard_id', 'metrics_id'])
+    # df_answer_all.to_excel('autotests_all_{Time}.xlsx'.format(Time=strftime("%Y-%m-%d", gmtime())), index=False)
     return 'Done'
 
 

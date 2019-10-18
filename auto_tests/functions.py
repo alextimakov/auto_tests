@@ -33,18 +33,19 @@ def aggregate_var(db, collection, pipeline):
     return result
 
 
-def mongo_request(db, collection, pipeline, field):
+def mongo_request(db, collection, pipeline, *fields):
     """
     Make custom request with Mongo Aggregation Pipeline
 
     :param db: DB name
     :param collection: Collection name
     :param pipeline: Mongo Aggregation Pipeline
-    :param field: field to be used as subset for drop_duplicates
+    :param fields: fields to be used as subset for drop_duplicates
     :return: return DataFrame with queried data from selected collection
     """
-    df = aggregate_dash(db, collection, pipeline)
-    result = df.drop_duplicates(field).reset_index(drop=True)
+    result = aggregate_dash(db, collection, pipeline)
+    for field in fields:
+        result = result.drop_duplicates(field).reset_index(drop=True)
     for column in result.columns:
         result[column] = result[column].astype(str)
     return result
@@ -67,6 +68,15 @@ def read_mongo(db, collection, query={}, output={}, no_id=False):
     if no_id:
         del df['_id']
     return df
+
+
+def write_results(final, i, dashboard, metrics_id, job, website, prefix):
+    result = pd.DataFrame(
+        data=[[dashboard, metrics_id, job.text, website+str(dashboard)+'/'+str(metrics_id), job.status_code]],
+        index=[i], columns=['dashboard_id', 'metric_id', 'answer_{}'.format(prefix), 'metric_{}_link'.format(prefix),
+                            'code_{}'.format(prefix)])
+    final = final.append(result)
+    return final
 
 
 def compare_results(qa, prod):
