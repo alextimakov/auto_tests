@@ -5,11 +5,8 @@ import auto_tests.data_coll as data_coll
 import auto_tests.functions as functions
 import auto_tests.config as config
 import auto_tests.mongo_scripts as mongo_scripts
-import requests
-from json import loads
-from time import sleep, gmtime, strftime, time
-import pandas as pd
-from json.decoder import JSONDecodeError
+from time import gmtime, strftime
+from datetime import datetime
 import logging
 import getpass
 
@@ -25,70 +22,14 @@ import getpass
 # TODO: переписать def main() корректно
 # TODO: актуализировать setup.py, сделать автоматически
 # TODO: логирование - оценить возможность развернуть ELK и складывать логи туда
+# TODO: писать результаты работы автотестов в БД
+# TODO: проверять наличие прописанных exceptions в теле метрик с пост-обработчиком
+# TODO: перевести список коллекций в словарь и дёргать их по ключам
 
 # set up logging
 logging.basicConfig(filename='auto_tests.log', filemode='a',
                     format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-def auto_test(data_frame, sso, api, website, user, password, prefix):
-    # run session
-    result = pd.DataFrame()
-    session = requests.Session()
-    r = session.post(sso, data={"login": user, "password": password}, timeout=5)
-    logger.info("session started with code {} by {}".format(int(r.status_code), user))
-    session.cookies.set_cookie(requests.cookies.create_cookie('roles', 'admin'))
-    session.cookies.set_cookie(requests.cookies.create_cookie('_currentUser', user))
-
-    for i in range(0, data_frame.shape[0]):
-        dashboard = data_frame.loc[i, 'dashboard']
-        metrics_id = data_frame.loc[i, 'metric_id']
-        # сбор тела запроса метрики
-        logger.info("job {} initiated by {}".format(int(i), user))
-        pipeline_var = [{"$group": {"_id": "$metrics.{}.variables".format(data_frame.loc[i, 'metric_id'])}},
-                        {"$project": {"_id": 0, "variables": "$_id"}}]
-        aggregation = functions.aggregate_var(config.db_qa, config.collection_dashboards, pipeline_var)
-
-        # формирование тела запроса метрики
-        body = {"__content": {"type": "metricData",
-                              "parameters": {"dashboardId": '{}'.format(dashboard),
-                                             "metricId": '{}'.format(metrics_id),
-                                             "variables": aggregation['variables']}}}
-
-        start_job = session.post(api+'startJob', json=body, timeout=60)
-        logger.info("job {} started with code {} by {}".format(int(i), int(start_job.status_code), user))
-        if int(start_job.status_code) in [403, 500]:
-            logger.info("job {} broke with code {}".format(int(i), start_job.status_code))
-            result = functions.write_results(result, i, dashboard, metrics_id, start_job.text, 0, start_job, website, prefix)
-        elif int(start_job.status_code) in [502]:
-            logger.info("job {} failed with code {}".format(int(i), int(start_job.status_code)))
-            result = functions.write_results(result, i, dashboard, metrics_id, start_job.text, 0, start_job, website, prefix)
-            sleep(180)
-        else:
-            try:
-                job = loads(start_job.text)['id']
-            except JSONDecodeError:
-                logger.info("mistake on {} with code {}".format(metrics_id, int(start_job.text)))
-                break
-
-            # Получение ответа на запрос
-            sleeper = time()
-            while True:
-                poll_job = session.get(api+'pollJob/'+job, timeout=60)
-                logger.info("job {} polled with code {}".format(int(i), int(poll_job.status_code)))
-                if poll_job.status_code != 204:
-                    break
-                sleep(1)
-            logger.info("job {} polled with code {} in {} sec for metric {}".format(int(i), int(poll_job.status_code),
-                                                                                    int(time()-sleeper), metrics_id))
-            # read poll_job results via json
-            try:
-                text = poll_job.json()['data']
-            except ValueError:
-                text = poll_job.text
-            result = functions.write_results(result, i, dashboard, metrics_id, text, int(time()-sleeper), poll_job,
-                                             website, prefix)
-    return result
 
 
 def main():
@@ -96,18 +37,21 @@ def main():
                                 mongo_scripts.pipeline_dash, config.black_list)
     df_processor = functions.mongo_request(config.db_prod, config.collection_dashboards,
                                            mongo_scripts.pipeline_processor)
-    # df = df.head(5)
+    df = df.head(5)
     login: str = getpass.getuser() + config.mail
     password: str = getpass.getpass()
-    df_answer_prod = auto_test(df, sso=config.sso_prod, api=config.api_prod, website=config.site_prod,
-                               user=login, password=password, prefix='prod')
-    df_answer_prod = df_answer_prod.merge(df_processor, how='left', on=['dashboard_id', 'metric_id'])
-    df_answer_qa = auto_test(df, sso=config.sso_qa, api=config.api_qa, website=config.site_qa,
-                             user=login, password=password, prefix='qa')
-    df_answer_all = df_answer_qa.merge(df_answer_prod, how='left', on=['dashboard_id', 'metric_id'])
-    df_answer_all['correct'] = [*map(functions.compare_results, df_answer_all['answer_qa'], df_answer_all['answer_prod'])]
-    df_answer_all.merge(df_processor, how='left', on=['dashboard_id', 'metric_id'])
-    df_answer_all.to_excel('autotests_all_{Time}.xlsx'.format(Time=strftime("%Y-%m-%d", gmtime())), index=False)
+
+    df_prod = functions.auto_test(df, sso=config.sso_prod, api=config.api_prod, website=config.site_prod, user=login,
+        password=password, prefix='prod', logger=logger, db_qa=config.db_qa, dashboards=config.collection_dashboards)
+    df_prod = df_prod.merge(df_processor, how='left', on=config.merger)
+    df_qa = functions.auto_test(df, sso=config.sso_qa, api=config.api_qa, website=config.site_qa, user=login,
+        password=password, prefix='qa', logger=logger, db_qa=config.db_qa, dashboards=config.collection_dashboards)
+    df_all = df_qa.merge(df_prod, how='left', on=config.merger)
+    df_all['correct'] = [*map(functions.compare_results, df_all['answer_qa'], df_all['answer_prod'])]
+    df_all = df_all.merge(df_processor, how='left', on=config.merger)
+    df_all['updated_time'] = datetime.utcnow()
+    df_all = df_all.T.to_dict().values()
+    functions.insert_test_results(config.db_prod, config.collection_auto_tests, df_all)
     return 'Done'
 
 
