@@ -85,14 +85,20 @@ def compare_results(qa, prod):
     return 0 if str(qa) != str(prod) else 1
 
 
-def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_qa, dashboards):
-    # run session
+def run_sso_session(sso, user, password, logger, add_cookies=True):
     session = requests.Session()
     r = session.post(sso, data={"login": user, "password": password}, timeout=5)
     logger.info("session started with code {} by {}".format(int(r.status_code), user))
-    session.cookies.set_cookie(requests.cookies.create_cookie('roles', 'admin'))
-    session.cookies.set_cookie(requests.cookies.create_cookie('_currentUser', user))
+    if add_cookies:
+        session.cookies.set_cookie(requests.cookies.create_cookie('roles', 'admin'))
+        session.cookies.set_cookie(requests.cookies.create_cookie('_currentUser', user))
+    else:
+        pass
+    return session
 
+
+def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_qa, dashboards, add_cookies):
+    session = run_sso_session(sso, user, password, logger, add_cookies)
     result = pd.DataFrame()
     for i in range(0, data_frame.shape[0]):
         dashboard = data_frame.loc[i, 'dashboard']

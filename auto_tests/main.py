@@ -5,7 +5,6 @@ import auto_tests.data_coll as data_coll
 import auto_tests.functions as functions
 import auto_tests.config as config
 import auto_tests.mongo_scripts as mongo_scripts
-from time import gmtime, strftime
 from datetime import datetime
 import logging
 import getpass
@@ -25,6 +24,7 @@ import getpass
 # TODO: писать результаты работы автотестов в БД
 # TODO: проверять наличие прописанных exceptions в теле метрик с пост-обработчиком
 # TODO: перевести список коллекций в словарь и дёргать их по ключам
+# TODO: подсоединить ко всей это истории данные с кластера
 
 # set up logging
 logging.basicConfig(filename='auto_tests.log', filemode='a',
@@ -42,16 +42,22 @@ def main():
     password: str = getpass.getpass()
 
     df_prod = functions.auto_test(df, sso=config.sso_prod, api=config.api_prod, website=config.site_prod, user=login,
-        password=password, prefix='prod', logger=logger, db_qa=config.db_qa, dashboards=config.collection_dashboards)
+        password=password, prefix='prod', logger=logger, db_qa=config.db_qa, dashboards=config.collection_dashboards,
+    add_cookies=True)
     df_prod = df_prod.merge(df_processor, how='left', on=config.merger)
     df_qa = functions.auto_test(df, sso=config.sso_qa, api=config.api_qa, website=config.site_qa, user=login,
-        password=password, prefix='qa', logger=logger, db_qa=config.db_qa, dashboards=config.collection_dashboards)
-    df_all = df_qa.merge(df_prod, how='left', on=config.merger)
+        password=password, prefix='qa', logger=logger, db_qa=config.db_qa, dashboards=config.collection_dashboards,
+    add_cookies=True)
+    df_qa = df_qa.merge(df_processor, how='left', on=config.merger)
+    df_all = df_qa.merge(df_prod, how='left', on=config.merger, suffixes=("_qa", "_prod"))
     df_all['correct'] = [*map(functions.compare_results, df_all['answer_qa'], df_all['answer_prod'])]
-    df_all = df_all.merge(df_processor, how='left', on=config.merger)
     df_all['updated_time'] = datetime.utcnow()
-    df_all = df_all.T.to_dict().values()
-    functions.insert_test_results(config.db_prod, config.collection_auto_tests, df_all)
+    functions.insert_test_results(config.db_prod, config.collection_auto_tests, df_all.T.to_dict().values())
+    # df_cluster = functions.auto_test(df, sso=config.sso_cluster, api=config.api_cluster, website=config.site_cluster,
+    #     user='axmor@biocad.ru', password=1, prefix='cluster', logger=logger, db_qa=config.db_qa,
+    #     dashboards=config.collection_dashboards, add_cookies=False)
+    # df_cluster = df_cluster.merge(df_processor, how='left', on=config.merger)
+    # df_all = df_all.merge(df_cluster, how='left', on=config.merger)
     return 'Done'
 
 
