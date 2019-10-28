@@ -23,10 +23,10 @@ import getpass
 # TODO: логирование - оценить возможность развернуть ELK и складывать логи туда
 # TODO: проверять наличие прописанных exceptions в теле метрик с пост-обработчиком
 # TODO: перевести список коллекций в словарь и дёргать их по ключам
-# TODO: подсоединить ко всей этой истории данные с кластера (пока ошибка при входе в sso)
 
 # set up logging
-logging_config.fileConfig("logger.config")
+log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logger.config')
+logging_config.fileConfig(log_file_path, disable_existing_loggers=False)
 logger = logging.getLogger(__name__)
 
 
@@ -35,26 +35,30 @@ def main():
                                 mongo_scripts.pipeline_dash, config.black_list)
     df_processor = functions.mongo_request(config.db_prod, config.collection_dashboards,
                                            mongo_scripts.pipeline_processor)
-    df = df.head(5)
+    # df = df.head(5)
     login: str = getpass.getuser() + config.mail
     password: str = getpass.getpass()
 
     df_prod = functions.auto_test(df, sso=config.sso_prod, api=config.api_prod, website=config.site_prod, user=login,
         password=password, prefix='prod', logger=logger, db_qa=config.db_qa, dashboards=config.collection_dashboards,
-    add_cookies=True)
+    add_cookies=True, custom_headers=False, headers={})
     df_prod = df_prod.merge(df_processor, how='left', on=config.merger)
     df_qa = functions.auto_test(df, sso=config.sso_qa, api=config.api_qa, website=config.site_qa, user=login,
         password=password, prefix='qa', logger=logger, db_qa=config.db_qa, dashboards=config.collection_dashboards,
-    add_cookies=True)
+    add_cookies=True, custom_headers=False, headers={})
     df_qa = df_qa.merge(df_processor, how='left', on=config.merger)
     df_all = df_qa.merge(df_prod, how='left', on=config.merger, suffixes=("_qa", "_prod"))
     df_all['correct'] = [*map(functions.compare_results, df_all['answer_qa'], df_all['answer_prod'])]
-    # df_cluster = functions.auto_test(df, sso=config.sso_cluster, api=config.api_cluster, website=config.site_cluster,
-    #     user='user', password='password', prefix='cluster', logger=logger, db_qa=config.db_qa,
-    #     dashboards=config.collection_dashboards, add_cookies=False)
-    # df_cluster = df_cluster.merge(df_processor, how='left', on=config.merger)
-    # df_all = df_all.merge(df_cluster, how='left', on=config.merger)
-    functions.insert_test_results(config.db_prod, config.collection_auto_tests, df_all.T.to_dict().values())
+
+    user_cluster = config.user_cluster
+    password_cluster = config.password_cluster
+    headers = {'content-type': 'application/x-www-form-urlencoded', 'Origin': config.origin_cluster}
+    df_cluster = functions.auto_test(df, sso=config.sso_cluster, api=config.api_cluster, website=config.site_cluster,
+        user=user_cluster, password=password_cluster, prefix='cluster', logger=logger, db_qa=config.db_qa,
+        dashboards=config.collection_dashboards, add_cookies=True, custom_headers=True, headers=headers)
+    df_cluster = df_cluster.merge(df_processor, how='left', on=config.merger)
+    df_all = df_all.merge(df_cluster, how='left', on=config.merger)
+    functions.insert_test_results(config.db_prod, config.collection_auto_tests, df_all)
     return 'Done'
 
 

@@ -29,8 +29,13 @@ site_qa = 'https://url/'
 sso_cluster = 'https://url/login/'
 api_cluster = 'https://url/api/'
 site_cluster = 'https://url/'
+origin_cluster = 'https://url/'
 
 # custom variables
 mail: str = '@mail.domain'
 merger: list = ['param', 'param']
 black_list: list = ['collection', 'collection']
+
+# temp variables
+user_cluster: str = 'user'
+password_cluster = 'password'
