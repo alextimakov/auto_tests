@@ -39,3 +39,4 @@ black_list: list = ['collection', 'collection']
 # temp variables
 user_cluster: str = 'user'
 password_cluster = 'password'
+headers_cluster: dict = {}

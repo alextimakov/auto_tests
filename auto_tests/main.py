@@ -1,28 +1,26 @@
 import sys, os
 sys.path.append(os.path.abspath('.'))
 
-import auto_tests.data_coll as data_coll
 import auto_tests.functions as functions
 import auto_tests.config as config
-import auto_tests.mongo_scripts as mongo_scripts
+import auto_tests.scripts as scripts
 import logging
 import logging.config as logging_config
 import getpass
 
-# TODO: доработать функционал сравнения результатов (с выделением нужных ключей через json.loads)
 # TODO: логирование - прописать разграничение уровней ошибок (в logger.config)
-# TODO: настроить работу с data-files (обмен результатами логирования)
 # TODO: переписать append'ы результата
 # TODO: написать тест для запуска по меньшему числу метрик и убрать df.head()
 # TODO: настроить сборку через tox.ini
 # TODO: разобраться с Makefile и раскаткой через Travis.CI
-# TODO: автоматическое версионирование (если возможно)
 # TODO: написать алёрты на мониторинг выполнения скрипта
 # TODO: переписать def main() корректно
-# TODO: актуализировать setup.py, сделать автоматический semver
-# TODO: логирование - оценить возможность развернуть ELK и складывать логи туда
+# TODO: актуализировать setup.py и сделать автоматический semver
+# TODO: логирование - обмен результатами логирования, оценить возможность развернуть ELK и складывать логи туда
 # TODO: проверять наличие прописанных exceptions в теле метрик с пост-обработчиком
 # TODO: перевести список коллекций в словарь и дёргать их по ключам
+# TODO: переписать единый insert на несколько поступательных update
+# TODO: перенести compare results в метрику
 
 # set up logging
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logger.config')
@@ -31,34 +29,36 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    df = data_coll.collect_data(config.db_prod, config.collection_dashboards, config.collection_collections,
-                                mongo_scripts.pipeline_dash, config.black_list)
+    df = functions.collect_data(config.db_prod, config.collection_dashboards, config.collection_collections,
+                                scripts.pipeline_dash, config.black_list)
+    functions.insert_test_results(config.db_prod, config.collection_auto_tests, df)
     df_processor = functions.mongo_request(config.db_prod, config.collection_dashboards,
-                                           mongo_scripts.pipeline_processor)
+                                           scripts.pipeline_processor)
     # df = df.head(5)
+
+    # credentials configuration
     login: str = getpass.getuser() + config.mail
     password: str = getpass.getpass()
 
-    df_prod = functions.auto_test(df, sso=config.sso_prod, api=config.api_prod, website=config.site_prod, user=login,
-        password=password, prefix='prod', logger=logger, db_qa=config.db_qa, dashboards=config.collection_dashboards,
-    add_cookies=True, custom_headers=False, headers={})
-    df_prod = df_prod.merge(df_processor, how='left', on=config.merger)
-    df_qa = functions.auto_test(df, sso=config.sso_qa, api=config.api_qa, website=config.site_qa, user=login,
-        password=password, prefix='qa', logger=logger, db_qa=config.db_qa, dashboards=config.collection_dashboards,
-    add_cookies=True, custom_headers=False, headers={})
-    df_qa = df_qa.merge(df_processor, how='left', on=config.merger)
-    df_all = df_qa.merge(df_prod, how='left', on=config.merger, suffixes=("_qa", "_prod"))
-    df_all['correct'] = [*map(functions.compare_results, df_all['answer_qa'], df_all['answer_prod'])]
-
     user_cluster = config.user_cluster
     password_cluster = config.password_cluster
-    headers = {'content-type': 'application/x-www-form-urlencoded', 'Origin': config.origin_cluster}
-    df_cluster = functions.auto_test(df, sso=config.sso_cluster, api=config.api_cluster, website=config.site_cluster,
-        user=user_cluster, password=password_cluster, prefix='cluster', logger=logger, db_qa=config.db_qa,
-        dashboards=config.collection_dashboards, add_cookies=True, custom_headers=True, headers=headers)
-    df_cluster = df_cluster.merge(df_processor, how='left', on=config.merger)
-    df_all = df_all.merge(df_cluster, how='left', on=config.merger)
-    functions.insert_test_results(config.db_prod, config.collection_auto_tests, df_all)
+    headers_cluster = config.headers_cluster
+
+    # dfs configuration
+    df_prod = {'sso': config.sso_prod, 'api': config.api_prod, 'website': config.site_prod, 'user': login,
+        'password': password, 'prefix': 'prod', 'logger': logger, 'db_qa': config.db_qa,
+        'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': False, 'headers': {}}
+    df_qa = {'sso': config.sso_qa, 'api': config.api_qa, 'website': config.site_qa, 'user': login,
+        'password': password, 'prefix': 'qa', 'logger': logger, 'db_qa': config.db_qa,
+        'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': False, 'headers': {}}
+    df_cluster = {'sso': config.sso_cluster, 'api': config.api_cluster, 'website': config.site_cluster,
+        'user': user_cluster, 'password': password_cluster, 'prefix': 'cluster', 'logger': logger,
+        'db_qa': config.db_qa, 'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': True,
+        'headers': headers_cluster}
+    dfs = [df_prod, df_qa, df_cluster]
+
+    # run auto tests
+    functions.run_multiple_tests(df, df_processor, config.merger, config.db_prod, config.collection_auto_tests, dfs)
     return 'Done'
 
 

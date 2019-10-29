@@ -4,25 +4,39 @@
 
 1. Склонируйте проект в нужную папку: 
 
-`git clone https://github.com/alextimakov/auto_tests.git`
-
-2. Распакуйте проект и создайте виртуальное окружение в нём:
-
+```bash
+git clone https://github.com/alextimakov/auto_tests.git
 ```
+
+
+2. Создайте в папке виртуальное окружение:
+
+```bash
 cd ./auto_tests
-python3 -m venv venv
+python -m venv venv -- для windows
+python3 -m venv venv -- для ubuntu
 ```
 
-3. Зайдите в созданное окружение и установите pip-tools:
+3. Активируйте окружение и установите в нём pip-tools:
 
-```
-source venv/bin/activate
+```bash
+.\venv\Scripts\activate -- для windows
+source venv/bin/activate -- для ubuntu
 pip install pip-tools
 ```
 
 4. Установите в окружение необходимые зависимости:
 
-`pip-sync`
+```bash
+pip-sync
+```
+
+5. Для запуска зайдите в родительскую папку и запустите файл `main.py`:
+
+```bash
+python3 auto_tests/main.py -- для ubuntu
+python .\auto_tests\main.py -- для windows
+```
 
 
 ### Возникающие ошибки

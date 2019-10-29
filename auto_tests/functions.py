@@ -1,8 +1,12 @@
+import sys, os
+sys.path.append(os.path.abspath('.'))
+
 import pandas as pd
 import requests
 import json
-from time import sleep, time
+from time import sleep, time, strftime, gmtime
 from datetime import datetime
+from pandas.io.json import json_normalize
 
 
 def aggregate_dash(db, collection, pipeline):
@@ -91,14 +95,31 @@ def read_poll_job(poll_job):
     """
 
     try:
-        text = poll_job.json()['data']
+        text = poll_job.json()['data'][0]
     except ValueError:
         text = poll_job.text
     return text
 
 
-def compare_results(qa, prod):
-    return 0 if str(qa) != str(prod) else 1
+def collect_data(db, collection_dashboards, collection_collections, pipeline, black_list):
+    # Сбор dashboard_id, metrics_id с prod
+    df_prod = mongo_request(db, collection_dashboards, pipeline, 'metric_id')
+
+    # Собираем все модули
+    cursor_collections = read_mongo(db, collection_collections,
+                                              query={"deleted": False}, output={'name.ru': 1})
+    cursor_collections['name'] = json_normalize(cursor_collections['name'])
+    collections = cursor_collections.loc[~cursor_collections['name'].isin(black_list)]['_id'].tolist()
+
+    # собираем _id релевантных дашбордов, имя - для доппроверки # change to read_mongo
+    needs_dashboards = read_mongo(db, collection_dashboards, query={
+        "$and": [{"deleted": False}, {"general.published": True}, {"general.collectionId": {"$in": collections}}]},
+                                            output={'_id': 1, 'general.name.ru': 1})
+    # fix this later
+    for i in range(0, len(needs_dashboards)):
+        needs_dashboards.loc[i, '_id'] = str(needs_dashboards.loc[i, '_id'])
+
+    return df_prod.loc[df_prod['dashboard'].isin(needs_dashboards['_id'].unique())].reset_index(drop=True)
 
 
 def run_sso_session(sso, user, password, logger, add_cookies=True, custom_headers=False, headers={}):
@@ -123,7 +144,7 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
         metric_id = data_frame.loc[i, 'metric_id']
         # сбор тела запроса метрики
         logger.info("job {} initiated by {}".format(int(i), user))
-        pipeline_var = [{"$group": {"_id": "$metrics.{}.variables".format(data_frame.loc[i, 'metric_id'])}},
+        pipeline_var = [{"$group": {"_id": "$metrics.{}.variables".format(metric_id)}},
             {"$project": {"_id": 0, "variables": "$_id"}}]
         aggregation = aggregate_var(db_qa, dashboards, pipeline_var)
 
@@ -143,11 +164,11 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
         logger.info("metric {} run with code {} by {}".format(metric_id, int(start_job.status_code), user))
         if int(start_job.status_code) in [403, 500]:
             logger.info("metric {} failed with code {}".format(metric_id, int(start_job.status_code)))
-            result = write_results(result, i, dashboard, metric_id, start_job.text, 0, int(start_job.status_code),
+            result = write_results(result, i, dashboard, metric_id, str(start_job.text), 0, int(start_job.status_code),
                 website, prefix)
         elif int(start_job.status_code) in [502]:
             logger.info("metric {} failed with code {}".format(metric_id, int(start_job.status_code)))
-            result = write_results(result, i, dashboard, metric_id, start_job.text, 0, int(start_job.status_code),
+            result = write_results(result, i, dashboard, metric_id, str(start_job.text), 0, int(start_job.status_code),
                 website, prefix)
             sleep(180)
         else:
@@ -163,19 +184,45 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
             # Получение ответа на запрос
             sleeper = time()
             while True:
-                poll_job = session.get(api+'pollJob/'+job, timeout=60)
+                try:
+                    poll_job = session.get(api+'pollJob/'+job, timeout=60)
+                except requests.exceptions.ReadTimeout:
+                    poll_job = 'Timeout'
+                    logger.info("metric {} read timeout".format(metric_id))
+                    break
                 logger.info("metric {} polled with code {}".format(metric_id, int(poll_job.status_code)))
                 if poll_job.status_code != 204:
+                    logger.info("metric {} polled with code {} in {} sec".format(metric_id, int(poll_job.status_code),
+                        int(time()-sleeper)))
                     break
                 sleep(1)
-            logger.info("metric {} polled with code {} in {} sec".format(metric_id, int(poll_job.status_code),
-                                                                                    int(time()-sleeper)))
-            text = read_poll_job(poll_job)
-            result = write_results(result, i, dashboard, metric_id, text, int(time()-sleeper), int(poll_job.status_code),
-                                             website, prefix)
+            if poll_job == 'Timeout':
+                text = 'Timeout'
+            else:
+                text = read_poll_job(poll_job)
+            result = write_results(result, i, dashboard, metric_id, str(text), int(time()-sleeper),
+                int(poll_job.status_code), website, prefix)
     return result
 
 
 def insert_test_results(db, collection, df_list):
     df_list['updated_time'] = datetime.utcnow()
-    db[collection].insert_many(df_list.T.to_dict().values())
+    db[collection].insert_many(df_list.T.to_dict().values(), ordered=False)
+
+
+def update_many(db, collection, condition, cond_value, df):
+    for column in df.columns:
+        db[collection].update_many(filter={condition: df[cond_value]},
+                                   update={'$set': {column: df[column].values}})
+
+def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, dfs):
+    # run test + merge with post-processor + merge with exceptions + save to excel + write to db
+    for df in dfs:
+        try:
+            df_result = auto_test(df_data, **df)
+            df_result = df_result.merge(df_processor, how='left', on=merger)
+        except ValueError or KeyError:
+            df_result = pd.DataFrame()
+        df_result.to_excel('auto_tests_{prefix}_{Time}.xlsx'.format(prefix=df['prefix'],
+            Time=strftime("%Y-%m-%d", gmtime())), index=False)
+        # update_many(db_put, collection_put, 'metric_id', 'metric_id', df_result)  # not finished!
