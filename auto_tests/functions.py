@@ -7,7 +7,8 @@ import json
 from time import sleep, time, strftime, gmtime
 from datetime import datetime
 from pandas.io.json import json_normalize
-from bson import errors
+from bson.errors import InvalidDocument
+from pymongo.errors import WriteError
 
 
 def aggregate_dash(db, collection, pipeline):
@@ -81,8 +82,8 @@ def write_results(final, i, dashboard, metrics_id, text, timer, status_code, web
     result = pd.DataFrame(
         data=[[dashboard, metrics_id, text, timer, website+str(dashboard)+'/'+str(metrics_id), status_code]],
         index=[i],
-        columns=['dashboard_id', 'metric_id', 'answer_{}'.format(prefix), 'timer', 'metric_{}_link'.format(prefix),
-            'code_{}'.format(prefix)])
+        columns=['dashboard_id', 'metric_id', 'answer_{}'.format(prefix), 'timer_{}'.format(prefix),
+            'metric_{}_link'.format(prefix), 'code_{}'.format(prefix)])
     final = final.append(result)
     return final
 
@@ -149,7 +150,7 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
     :param password: password
     :param (str) prefix: prefix like 'prod' or 'qa'
     :param logger: logger
-    :param (pandas.core.frame.DataFrame) db_qa: db for getting variables from qa
+    :param db_qa: db for getting variables from qa
     :param (str) dashboards: collection with dashboard
     :param (bool) add_cookies: if True then add '_currentUser' and 'roles' cookies
     :param (bool) custom_headers: if True then add custom headers
@@ -187,7 +188,7 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
             logger.info("metric {} failed with code {}".format(metric_id, int(start_job.status_code)))
             result = write_results(result, i, dashboard, metric_id, str(start_job.text), 0, int(start_job.status_code),
                 website, prefix)
-        elif int(start_job.status_code) in [502]:
+        elif int(start_job.status_code) in [404, 502]:
             logger.info("metric {} failed with code {}".format(metric_id, int(start_job.status_code)))
             result = write_results(result, i, dashboard, metric_id, str(start_job.text), 0, int(start_job.status_code),
                 website, prefix)
@@ -212,17 +213,19 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
                     logger.info('{} at metric {}'.format(poll_job, metric_id))
                     break
                 logger.info("metric {} polled with code {}".format(metric_id, int(poll_job.status_code)))
-                if poll_job.status_code != 204:
+                if int(poll_job.status_code) != 204:
                     logger.info("metric {} polled with code {} in {} sec".format(metric_id, int(poll_job.status_code),
                         int(time()-sleeper)))
                     break
                 sleep(1)
             if poll_job == 'poll_job_timeout':
                 text = poll_job
+                status_code = 204
             else:
                 text = read_poll_job(poll_job)
+                status_code = int(poll_job.status_code)
             result = write_results(result, i, dashboard, metric_id, str(text), int(time()-sleeper),
-                int(poll_job.status_code), website, prefix)
+                                   status_code, website, prefix)
     return result
 
 
@@ -239,9 +242,14 @@ def update_many(db, collection, condition, df, merger):
         for column in df.loc[df[condition] == instance][unique_columns]:
             try:
                 db[collection].update_many({condition: instance},
-                                           {'$set': {column: str(df.loc[df[condition] == instance][column].values[0])}})
-            except errors.InvalidDocument:
-               pass
+                                           {'$set': {column: str(df.loc[df[condition] == instance][column].values[0])}},
+                                           upsert=True)
+            except InvalidDocument:
+                db[collection].update_many({condition: instance}, {'$set': {column: 'InvalidDocument'}}, upsert=True)
+                break
+            except WriteError:
+                db[collection].update_many({condition: instance}, {'$set': {column: 'WriteError'}}, upsert=True)
+                break
 
 
 def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, dfs, save_to_excel=False):

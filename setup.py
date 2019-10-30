@@ -19,7 +19,7 @@ setup(
     ],
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),  # Required
     python_requires='>=3.5, <4',  # Required
-    install_requires=['pandas', 'pymongo', 'requests', 'flake8'],  # Optional
+    install_requires=['pandas', 'pymongo', 'requests', 'flake8', 'bson'],  # Optional
     entry_points={  # Optional
         'console_scripts': [
             'auto_tests=auto_tests:main',
