@@ -4,32 +4,30 @@ sys.path.append(os.path.abspath('.'))
 import auto_tests.functions as functions
 import auto_tests.config as config
 import auto_tests.scripts as scripts
-import logging
-import logging.config as logging_config
+import logging.config
 import getpass
 
 # TODO: логирование - прописать разграничение уровней ошибок (в logger.config)
 # TODO: переписать append'ы результата на что-то более эффективное
-# TODO: написать тесты для запуска по меньшему числу метрик и убрать все df.head()
 # TODO: настроить сборку через tox.ini
 # TODO: написать алёрты на мониторинг выполнения скрипта
 # TODO: переписать def main() по-человечески
 # TODO: актуализировать setup.py и сделать автоматический semver (возможно ли?)
 # TODO: логирование - обмен результатами логирования, оценить возможность складывать логи в БД (всё же ELK?)
 # TODO: проверять наличие прописанных exceptions в теле метрик с пост-обработчиком (df_processor)
-# TODO: перевести список коллекций в словарь и дёргать их по ключам
 # TODO: перенести compare results в метрику
 # TODO: сделать нормальный фикс ошибки pymongo.errors.WriteError на больших ответах
 # TODO: настроить рассылку результатов выполнения скрипта
+# TODO: использовать асинхронные запросы или через мультипроцессинг
 
 
 # set up logging
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logger.config')
-logging_config.fileConfig(log_file_path, disable_existing_loggers=False)
+logging.config.fileConfig(log_file_path, disable_existing_loggers=False)
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main(for_test=False):
     df = functions.collect_data(config.db_prod, config.collection_dashboards, config.collection_collections,
                                 scripts.pipeline_dash, config.black_list)
     df_processor = functions.mongo_request(config.db_prod, config.collection_dashboards,
@@ -38,7 +36,6 @@ def main():
     # credentials
     login: str = getpass.getuser() + config.mail
     password: str = getpass.getpass()
-
     user_cluster: str = config.user_cluster
     password_cluster: str = config.password_cluster
     headers_cluster = config.headers_cluster
@@ -56,9 +53,9 @@ def main():
         'headers': headers_cluster}
     dfs = [df_prod, df_qa, df_cluster]
 
-    # limit for testing
-    # df = df.head(3)
-    # df_processor = df_processor.head(3)
+    if for_test:
+        df = df.head(3)
+        df_processor = df_processor.head(3)
 
     # check for existing metric_id before updating?
     functions.insert_test_results(config.db_prod, config.collection_auto_tests, df)
@@ -69,4 +66,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(for_test=True)

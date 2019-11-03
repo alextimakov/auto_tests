@@ -1,10 +1,7 @@
-import sys, os
-sys.path.append(os.path.abspath('.'))
-
 import pandas as pd
-import requests
+import requests.cookies
 import json
-from time import sleep, time, strftime, gmtime
+from time import sleep, time
 from datetime import datetime
 from pandas.io.json import json_normalize
 from bson.errors import InvalidDocument
@@ -59,7 +56,7 @@ def mongo_request(db, collection, pipeline, *fields):
     return result
 
 
-def read_mongo(db, collection, query={}, output={}, no_id=False):
+def read_mongo(db, collection, query=None, output=None, no_id=False):
     """
     Read selected collection from MongoDB and return it as Pandas DataFrame.
 
@@ -71,6 +68,10 @@ def read_mongo(db, collection, query={}, output={}, no_id=False):
     :return (pandas.core.frame.DataFrame): returns DataFrame with queried data from selected collection
     """
 
+    if output is None:
+        output = {}
+    if query is None:
+        query = {}
     cursor = db[collection].find(query, output)  # Make a query to the specific DB and Collection
     df = pd.DataFrame(list(cursor))  # Expand the cursor and construct the DataFrame
     if no_id:
@@ -100,7 +101,7 @@ def read_poll_job(poll_job):
         text = poll_job.json()['data']
     except ValueError:
         text = poll_job.text
-    return text
+    return str(text)
 
 
 def collect_data(db, collection_dashboards, collection_collections, pipeline, black_list):
@@ -124,7 +125,9 @@ def collect_data(db, collection_dashboards, collection_collections, pipeline, bl
     return df_prod.loc[df_prod['dashboard'].isin(needs_dashboards['_id'].unique())].reset_index(drop=True)
 
 
-def run_sso_session(sso, user, password, logger, add_cookies=True, custom_headers=False, headers={}):
+def run_sso_session(sso, user, password, logger, add_cookies=True, custom_headers=False, headers=None):
+    if headers is None:
+        headers = {}
     session = requests.Session()
     if custom_headers:
         r = session.post(sso, data={"login": user, "password": password}, timeout=5, headers=headers)
@@ -195,6 +198,7 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
             sleep(180)
         else:
             try:
+                # start_job.json()['id']
                 job = json.loads(start_job.text)['id']
             except json.decoder.JSONDecodeError:
                 try:
@@ -224,8 +228,8 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
             else:
                 text = read_poll_job(poll_job)
                 status_code = int(poll_job.status_code)
-            result = write_results(result, i, dashboard, metric_id, str(text), int(time()-sleeper),
-                                   status_code, website, prefix)
+            result = write_results(result, i, dashboard, metric_id, text, int(time()-sleeper), status_code, website,
+                                   prefix)
     return result
 
 
@@ -275,5 +279,5 @@ def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, df
             df_result = pd.DataFrame()
         if save_to_excel:
             df_result.to_excel('auto_tests_{prefix}_{Time}.xlsx'.format(prefix=df['prefix'],
-                Time=strftime("%Y-%m-%d", gmtime())), index=False)
+                Time=datetime.utcnow().strftime('%Y-%m-%d')), index=False)
         update_many(db_put, collection_put, 'metric_id', df_result, merger)
