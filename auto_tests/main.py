@@ -5,7 +5,6 @@ import auto_tests.functions as functions
 import auto_tests.config as config
 import auto_tests.scripts as scripts
 import logging.config
-import getpass
 
 # TODO: логирование - прописать разграничение уровней ошибок (в logger.config)
 # TODO: переписать append'ы результата на что-то более эффективное
@@ -27,20 +26,26 @@ logging.config.fileConfig(log_file_path, disable_existing_loggers=False)
 logger = logging.getLogger(__name__)
 
 
-def main(for_test=False):
-    df = functions.collect_data(config.db_prod, config.collection_dashboards, config.collection_collections,
-                                scripts.pipeline_dash, config.black_list)
-    df_processor = functions.mongo_request(config.db_prod, config.collection_dashboards,
-                                           scripts.pipeline_processor)
-
+def main():
     # credentials
-    login: str = getpass.getuser() + config.mail
-    password: str = getpass.getpass()
+    login, password, test_mode = functions.get_credentials()
+    login += config.mail
+
     user_cluster: str = config.user_cluster
     password_cluster: str = config.password_cluster
     headers_cluster = config.headers_cluster
 
-    # dfs to test
+    # dfs with source data
+    df = functions.collect_data(config.db_prod, config.collection_dashboards, config.collection_collections,
+                                scripts.pipeline_dash, config.black_list)
+    df_processor = functions.mongo_request(config.db_prod, config.collection_dashboards, scripts.pipeline_processor)
+
+    # limit amount of source data for test
+    if test_mode:
+        df = df.head(3)
+        df_processor = df_processor.head(3)
+
+    # dfs to run tests upon
     df_prod = {'sso': config.sso_prod, 'api': config.api_prod, 'website': config.site_prod, 'user': login,
         'password': password, 'prefix': 'prod', 'logger': logger, 'db_qa': config.db_qa,
         'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': False, 'headers': {}}
@@ -53,10 +58,6 @@ def main(for_test=False):
         'headers': headers_cluster}
     dfs = [df_prod, df_qa, df_cluster]
 
-    if for_test:
-        df = df.head(3)
-        df_processor = df_processor.head(3)
-
     # check for existing metric_id before updating?
     functions.insert_test_results(config.db_prod, config.collection_auto_tests, df)
 
@@ -66,4 +67,4 @@ def main(for_test=False):
 
 
 if __name__ == '__main__':
-    main(for_test=True)
+    main()

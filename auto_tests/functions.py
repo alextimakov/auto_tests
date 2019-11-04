@@ -6,6 +6,8 @@ from datetime import datetime
 from pandas.io.json import json_normalize
 from bson.errors import InvalidDocument
 from pymongo.errors import WriteError
+from argparse import ArgumentParser
+import getpass
 
 
 def aggregate_dash(db, collection, pipeline):
@@ -281,3 +283,25 @@ def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, df
             df_result.to_excel('auto_tests_{prefix}_{Time}.xlsx'.format(prefix=df['prefix'],
                 Time=datetime.utcnow().strftime('%Y-%m-%d')), index=False)
         update_many(db_put, collection_put, 'metric_id', df_result, merger)
+
+
+def get_credentials():
+    l: str = getpass.getuser()
+
+    parser = ArgumentParser()
+    parser.add_argument('-l', '--login', nargs='?', dest='login', default=l,
+                        type=str, help='Enter login if different from the system one')
+    parser.add_argument('-p', '--password', nargs='?', dest='password', default=None,
+                        help='Enter password')
+    parser.add_argument('-t', '--test', nargs='?', dest='test_mode', default=False,
+                        type=bool, help='Set as True if want to use test sample')
+
+    args = parser.parse_args()
+    l = args.login
+    p = args.password
+    t = args.test_mode
+
+    if p is None:
+        p: str = getpass.getpass()
+
+    return l, p, t

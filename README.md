@@ -31,11 +31,17 @@ pip install pip-tools
 pip-sync
 ```
 
-5. Для запуска зайдите в родительскую папку и запустите файл `main.py`:
+5. Для запуска зайдите в родительскую папку и запустите файл `main.py` с нужными флагами:
 
 ```bash
+-l login -- введите логин, если он отличается от системного
+-p password -- введите пароль, сделано для удобства запуска из shell
+-t test_mode -- если True, то ограничивает кол-во запускаемых метрик до 3-х
+
 python3 auto_tests/main.py -- для ubuntu
 python .\auto_tests\main.py -- для windows
+
+python .\auto_tests\main.py -l your_login -t True -- запуск с указанным логином в тестовом режиме
 ```
 
 
