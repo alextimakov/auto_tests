@@ -142,6 +142,12 @@ def run_sso_session(sso, user, password, logger, add_cookies=True, custom_header
     return session
 
 
+def collect_parameters():
+    # add check for defaultValueAsQuery
+    # check for defaultQuery type and run script depending on type
+    return 1
+
+
 def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_qa, dashboards,
               add_cookies, custom_headers, headers):
     """
@@ -235,13 +241,17 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
     return result
 
 
-def insert_test_results(db, collection, df_list):
-    df_list['updated_time'] = datetime.utcnow()
-    db[collection].insert_many(df_list.T.to_dict().values(), ordered=False)
+def insert_test_results(db, collection, df, condition):
+    unique_metrics = df[condition].unique().tolist()
+    for instance in unique_metrics:
+        for column in df.loc[df[condition] == instance]:
+            db[collection].update_many({condition: instance},
+                                       {'$set': {column: df.loc[df[condition] == instance][column].values[0],
+                                                 'updated_time': datetime.utcnow()}},
+                                       upsert=True)
 
 
 def update_many(db, collection, condition, df, merger):
-    # NOT FINISHED !!!
     unique_metrics = df[condition].unique().tolist()
     unique_columns = [column for column in df.columns.tolist() if column not in merger]
     for instance in unique_metrics:
@@ -258,7 +268,8 @@ def update_many(db, collection, condition, df, merger):
                 break
 
 
-def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, dfs, save_to_excel=False):
+def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, dfs, save_to_excel=False,
+                       insert_to_mongo=False):
     """
     Run test -> merge with post-processor -> [merge with exceptions] -> save to excel | write to mongo
 
@@ -269,6 +280,7 @@ def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, df
     :param collection_put: collections to put results of tests into
     :param (dicts) dfs: configs for dfs to run tests on
     :param (bool) save_to_excel: if true then save to xlsx files
+    :param (bool) insert_to_mongo: if true then update data in mongo collection
     :return: None
     """
     for df in dfs:
@@ -282,7 +294,8 @@ def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, df
         if save_to_excel:
             df_result.to_excel('auto_tests_{prefix}_{Time}.xlsx'.format(prefix=df['prefix'],
                 Time=datetime.utcnow().strftime('%Y-%m-%d')), index=False)
-        update_many(db_put, collection_put, 'metric_id', df_result, merger)
+        if insert_to_mongo:
+            update_many(db_put, collection_put, 'metric_id', df_result, merger)
 
 
 def get_credentials():
@@ -293,15 +306,19 @@ def get_credentials():
                         type=str, help='Enter login if different from the system one')
     parser.add_argument('-p', '--password', nargs='?', dest='password', default=None,
                         help='Enter password')
-    parser.add_argument('-t', '--test', nargs='?', dest='test_mode', default=False,
+    parser.add_argument('-t', '--test', nargs='?', dest='test_mode', default=True,
                         type=bool, help='Set as True if want to use test sample')
-
+    parser.add_argument('-e', '--excel', nargs='?', dest='save_to_excel', default=False, type=bool,
+                        help='Set as True if want to save results to excel file')
+    parser.add_argument('-m', '--mongo', nargs='?', dest='insert_to_mongo', default=False, type=bool,
+                        help='Set as True if want to insert to mongo')
     args = parser.parse_args()
     l = args.login
     p = args.password
     t = args.test_mode
-
+    e = args.save_to_excel
+    m = args.insert_to_mongo
     if p is None:
         p: str = getpass.getpass()
 
-    return l, p, t
+    return l, p, t, e, m

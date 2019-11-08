@@ -18,6 +18,8 @@ import logging.config
 # TODO: сделать нормальный фикс ошибки pymongo.errors.WriteError на больших ответах
 # TODO: настроить рассылку результатов выполнения скрипта
 # TODO: использовать асинхронные запросы или через мультипроцессинг
+# TODO: изменить выбор defaultValue - в случае если defaultValueAsQuery = true
+# TODO: добавить чёрный лист по дашбордам
 
 
 # set up logging
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     # credentials
-    login, password, test_mode = functions.get_credentials()
+    login, password, test_mode, save_to_excel, insert_to_mongo = functions.get_credentials()
     login += config.mail
 
     user_cluster: str = config.user_cluster
@@ -37,7 +39,7 @@ def main():
 
     # dfs with source data
     df = functions.collect_data(config.db_prod, config.collection_dashboards, config.collection_collections,
-                                scripts.pipeline_dash, config.black_list)
+                                scripts.pipeline_dash, config.black_list_modules)
     df_processor = functions.mongo_request(config.db_prod, config.collection_dashboards, scripts.pipeline_processor)
 
     # limit amount of source data for test
@@ -56,14 +58,16 @@ def main():
         'user': user_cluster, 'password': password_cluster, 'prefix': 'cluster', 'logger': logger,
         'db_qa': config.db_qa, 'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': True,
         'headers': headers_cluster}
-    dfs = [df_prod, df_qa, df_cluster]
+    # dfs = [df_prod, df_qa, df_cluster]
+    dfs = [df_prod, df_cluster]
 
-    # check for existing metric_id before updating?
-    functions.insert_test_results(config.db_prod, config.collection_auto_tests, df)
+    # check for existing metric_id before updating
+    if insert_to_mongo:
+        functions.insert_test_results(config.db_prod, config.collection_auto_tests, df, config.merger[1])
 
     # run multiple tests
     functions.run_multiple_tests(df, df_processor, config.merger, config.db_prod, config.collection_auto_tests, dfs,
-                                 save_to_excel=False)
+                                 save_to_excel=save_to_excel, insert_to_mongo=insert_to_mongo)
 
 
 if __name__ == '__main__':
