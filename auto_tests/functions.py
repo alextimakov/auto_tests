@@ -188,7 +188,7 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
 
         # отправка запроса
         try:
-            start_job = session.post(api+'startJob', json=body, timeout=60)
+            start_job = session.post(api+'startJob', json=body, timeout=(12, 20))
         except requests.exceptions.Timeout:
             start_job = 'start_job_timeout'
             logger.info('{} at metric {}'.format(start_job, metric_id))
@@ -217,17 +217,17 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
 
             # Получение ответа на запрос
             sleeper = time()
-            while True:
+            while time()-sleeper <= 121:
                 try:
-                    poll_job = session.get(api+'pollJob/'+job, timeout=60)
-                except requests.exceptions.ReadTimeout:
+                    poll_job = session.get(api+'pollJob/'+job, timeout=(12, 20))
+                    logger.info("metric {} polled with code {}".format(metric_id, int(poll_job.status_code)))
+                except requests.exceptions.ReadTimeout or requests.exceptions.ConnectionError:
                     poll_job = 'poll_job_timeout'
                     logger.info('{} at metric {}'.format(poll_job, metric_id))
                     break
-                logger.info("metric {} polled with code {}".format(metric_id, int(poll_job.status_code)))
                 if int(poll_job.status_code) != 204:
                     logger.info("metric {} polled with code {} in {} sec".format(metric_id, int(poll_job.status_code),
-                        int(time()-sleeper)))
+                                                                                 int(time() - sleeper)))
                     break
                 sleep(1)
             if poll_job == 'poll_job_timeout':
@@ -268,7 +268,7 @@ def update_many(db, collection, condition, df, merger):
                 break
 
 
-def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, dfs, save_to_excel=False,
+def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, logger, dfs, save_to_excel=False,
                        insert_to_mongo=False):
     """
     Run test -> merge with post-processor -> [merge with exceptions] -> save to excel | write to mongo
@@ -278,6 +278,7 @@ def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, df
     :param (str) merger: field to merge on
     :param db_put: db to put results of tests into
     :param collection_put: collections to put results of tests into
+    :param logger: logger
     :param (dicts) dfs: configs for dfs to run tests on
     :param (bool) save_to_excel: if true then save to xlsx files
     :param (bool) insert_to_mongo: if true then update data in mongo collection
@@ -294,8 +295,10 @@ def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, df
         if save_to_excel:
             df_result.to_excel('auto_tests_{prefix}_{Time}.xlsx'.format(prefix=df['prefix'],
                 Time=datetime.utcnow().strftime('%Y-%m-%d')), index=False)
+            logger.info('results saved to excel')
         if insert_to_mongo:
             update_many(db_put, collection_put, 'metric_id', df_result, merger)
+            logger.info('results inserted to mongo')
 
 
 def get_credentials():
@@ -306,18 +309,19 @@ def get_credentials():
                         type=str, help='Enter login if different from the system one')
     parser.add_argument('-p', '--password', nargs='?', dest='password', default=None,
                         help='Enter password')
-    parser.add_argument('-t', '--test', nargs='?', dest='test_mode', default=True,
-                        type=bool, help='Set as True if want to use test sample')
-    parser.add_argument('-e', '--excel', nargs='?', dest='save_to_excel', default=False, type=bool,
-                        help='Set as True if want to save results to excel file')
-    parser.add_argument('-m', '--mongo', nargs='?', dest='insert_to_mongo', default=False, type=bool,
-                        help='Set as True if want to insert to mongo')
+    parser.add_argument('-t', '--test', dest='test_mode', action='store_false',
+                        help='Add -t when running script if want to use full sample')
+    parser.add_argument('-e', '--excel', dest='save_to_excel', action='store_true',
+                        help='Add -e when running script if want to save results to excel file')
+    parser.add_argument('-m', '--mongo', dest='insert_to_mongo', action='store_true',
+                        help='Add -m when running script if want to insert to mongo')
+
     args = parser.parse_args()
     l = args.login
     p = args.password
-    t = args.test_mode
-    e = args.save_to_excel
-    m = args.insert_to_mongo
+    t: bool = args.test_mode
+    e: bool = args.save_to_excel
+    m: bool = args.insert_to_mongo
     if p is None:
         p: str = getpass.getpass()
 

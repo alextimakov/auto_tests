@@ -31,21 +31,14 @@ logger = logging.getLogger(__name__)
 def main():
     # credentials
     login, password, test_mode, save_to_excel, insert_to_mongo = functions.get_credentials()
+    logger.info('test_mode: {}, save_to_excel: {}, insert_to_mongo: {}'.format(test_mode,
+                                                                               save_to_excel, insert_to_mongo))
     login += config.mail
-
-    user_cluster: str = config.user_cluster
-    password_cluster: str = config.password_cluster
-    headers_cluster = config.headers_cluster
 
     # dfs with source data
     df = functions.collect_data(config.db_prod, config.collection_dashboards, config.collection_collections,
                                 scripts.pipeline_dash, config.black_list_modules)
     df_processor = functions.mongo_request(config.db_prod, config.collection_dashboards, scripts.pipeline_processor)
-
-    # limit amount of source data for test
-    if test_mode:
-        df = df.head(3)
-        df_processor = df_processor.head(3)
 
     # dfs to run tests upon
     df_prod = {'sso': config.sso_prod, 'api': config.api_prod, 'website': config.site_prod, 'user': login,
@@ -55,19 +48,24 @@ def main():
         'password': password, 'prefix': 'qa', 'logger': logger, 'db_qa': config.db_qa,
         'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': False, 'headers': {}}
     df_cluster = {'sso': config.sso_cluster, 'api': config.api_cluster, 'website': config.site_cluster,
-        'user': user_cluster, 'password': password_cluster, 'prefix': 'cluster', 'logger': logger,
+        'user': config.user_cluster, 'password': config.password_cluster, 'prefix': 'cluster', 'logger': logger,
         'db_qa': config.db_qa, 'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': True,
-        'headers': headers_cluster}
-    # dfs = [df_prod, df_qa, df_cluster]
-    dfs = [df_prod, df_cluster]
+        'headers': config.headers_cluster}
+    dfs = [df_prod, df_qa, df_cluster]
+
+    # limit amount of source data for test
+    if test_mode:
+        df = df.iloc[:3, :].copy()
+        df_processor = df_processor.iloc[:3, :].copy()
+
 
     # check for existing metric_id before updating
     if insert_to_mongo:
         functions.insert_test_results(config.db_prod, config.collection_auto_tests, df, config.merger[1])
 
     # run multiple tests
-    functions.run_multiple_tests(df, df_processor, config.merger, config.db_prod, config.collection_auto_tests, dfs,
-                                 save_to_excel=save_to_excel, insert_to_mongo=insert_to_mongo)
+    functions.run_multiple_tests(df, df_processor, config.merger, config.db_prod, config.collection_auto_tests,
+                                 logger, dfs, save_to_excel=save_to_excel, insert_to_mongo=insert_to_mongo)
 
 
 if __name__ == '__main__':
