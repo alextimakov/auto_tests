@@ -121,10 +121,9 @@ def collect_data(db, collection_dashboards, collection_collections, pipeline, bl
         "$and": [{"deleted": False}, {"general.published": True}, {"general.collectionId": {"$in": collections}}]},
                                             output={'_id': 1, 'general.name.ru': 1})
     # fix this later
-    for i in range(0, len(needs_dashboards)):
-        needs_dashboards.loc[i, '_id'] = str(needs_dashboards.loc[i, '_id'])
+    needs_dashboards['_id'] = needs_dashboards['_id'].astype(str)
 
-    return df_prod.loc[df_prod['dashboard'].isin(needs_dashboards['_id'].unique())].reset_index(drop=True)
+    return df_prod.loc[df_prod['dashboard_id'].isin(needs_dashboards['_id'].unique())].reset_index(drop=True)
 
 
 def run_sso_session(sso, user, password, logger, add_cookies=True, custom_headers=False, headers=None):
@@ -148,7 +147,7 @@ def collect_parameters():
     return 1
 
 
-def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_qa, dashboards,
+def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_var, dashboards,
               add_cookies, custom_headers, headers):
     """
     Key function to start and poll metrics on selected instance via API
@@ -161,7 +160,7 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
     :param password: password
     :param (str) prefix: prefix like 'prod' or 'qa'
     :param logger: logger
-    :param db_qa: db for getting variables from qa
+    :param db_var: db for getting variables
     :param (str) dashboards: collection with dashboard
     :param (bool) add_cookies: if True then add '_currentUser' and 'roles' cookies
     :param (bool) custom_headers: if True then add custom headers
@@ -171,14 +170,14 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
     session = run_sso_session(sso, user, password, logger, add_cookies, custom_headers, headers)
     result = pd.DataFrame()
     for i in range(0, data_frame.shape[0]):
-        dashboard = data_frame.loc[i, 'dashboard']
+        dashboard = data_frame.loc[i, 'dashboard_id']
         metric_id = data_frame.loc[i, 'metric_id']
 
         # сбор тела запроса метрики
         logger.info("job {} initiated by {}".format(int(i), user))
         pipeline_var = [{"$group": {"_id": "$metrics.{}.variables".format(metric_id)}},
             {"$project": {"_id": 0, "variables": "$_id"}}]
-        aggregation = aggregate_var(db_qa, dashboards, pipeline_var)
+        aggregation = aggregate_var(db_var, dashboards, pipeline_var)
 
         # формирование тела запроса метрики
         body = {"__content": {"type": "metricData",
@@ -285,13 +284,14 @@ def run_multiple_tests(df_data, df_processor, merger, db_put, collection_put, lo
     :return: None
     """
     for df in dfs:
-        try:
-            df_result = auto_test(df_data, **df)
+        df_result = auto_test(df_data, **df)
+        if len(df_result.index)!=0:
             df_result = df_result.merge(df_processor, how='left', on=merger)
             df_result = df_result.rename(columns={'post_processor': 'post_processor_{}'.format(df['prefix'])})
             # merge with exceptions
-        except ValueError or KeyError:  # set up relevant errors
+        else:  # set up relevant errors
             df_result = pd.DataFrame()
+
         if save_to_excel:
             df_result.to_excel('auto_tests_{prefix}_{Time}.xlsx'.format(prefix=df['prefix'],
                 Time=datetime.utcnow().strftime('%Y-%m-%d')), index=False)
