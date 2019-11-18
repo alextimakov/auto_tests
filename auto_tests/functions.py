@@ -175,7 +175,10 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
 
         # сбор тела запроса метрики
         logger.info("job {} initiated by {}".format(int(i), user))
-        pipeline_var = [{"$group": {"_id": "$metrics.{}.variables".format(metric_id)}},
+        pipeline_var = [
+            {"$match": {"deleted": {"$ne": True}}},
+            {"$group": {"_id": "$metrics.{}.variables".format(metric_id)}},
+            {"$match": {"_id": {"$ne": None}}},
             {"$project": {"_id": 0, "variables": "$_id"}}]
         aggregation = aggregate_var(db_var, dashboards, pipeline_var)
 
@@ -205,8 +208,8 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
             sleep(180)
         else:
             try:
-                # start_job.json()['id']
-                job = json.loads(start_job.text)['id']
+                job = start_job.json()['id']
+                # job = json.loads(start_job.text)['id']
             except json.decoder.JSONDecodeError:
                 try:
                     logger.info("metric {} failed with code {}".format(metric_id, int(start_job.status_code)))
