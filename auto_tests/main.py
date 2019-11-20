@@ -41,20 +41,22 @@ def main():
     # dfs to run tests upon
     df_prod = {'sso': config.sso_prod, 'api': config.api_prod, 'website': config.site_prod, 'user': login,
         'password': password, 'prefix': 'prod', 'logger': logger, 'db_var': config.db_prod,
-        'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': False, 'headers': {}}
+        'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': False, 'headers': {},
+        'var_type': 'logs'}
     df_qa = {'sso': config.sso_qa, 'api': config.api_qa, 'website': config.site_qa, 'user': login,
         'password': password, 'prefix': 'qa', 'logger': logger, 'db_var': config.db_qa,
-        'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': False, 'headers': {}}
+        'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': False, 'headers': {},
+        'var_type': 'default'}
     df_cluster = {'sso': config.sso_cluster, 'api': config.api_cluster, 'website': config.site_cluster,
         'user': config.user_cluster, 'password': config.password_cluster, 'prefix': 'cluster', 'logger': logger,
         'db_var': config.db_cluster, 'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': True,
-        'headers': config.headers_cluster}
+        'headers': config.headers_cluster, 'var_type': 'default'}
     dfs = [df_prod, df_qa, df_cluster]
 
     # limit amount of source data for test
     if test_mode:
-        df = df.iloc[:3, :].copy()
-        df_processor = df_processor.iloc[:3, :].copy()
+        df = df.iloc[:50, :].copy()
+        df_processor = df_processor.iloc[:50, :].copy()
 
     # check for existing metric_id before updating
     if insert_to_mongo:

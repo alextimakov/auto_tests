@@ -148,10 +148,11 @@ def collect_parameters():
 
 
 def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_var, dashboards,
-              add_cookies, custom_headers, headers):
+              add_cookies, custom_headers, headers, var_type='default'):
     """
     Key function to start and poll metrics on selected instance via API
 
+    :param var_type: variables use from "logs" or "default"
     :param (pandas.core.frame.DataFrame) data_frame: existing metrics from prod
     :param (str) sso: url to sso
     :param (str) api: url to api
@@ -173,14 +174,36 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
         dashboard = data_frame.loc[i, 'dashboard_id']
         metric_id = data_frame.loc[i, 'metric_id']
 
-        # сбор тела запроса метрики
-        logger.info("job {} initiated by {}".format(int(i), user))
-        pipeline_var = [
-            {"$match": {"deleted": {"$ne": True}}},
-            {"$group": {"_id": "$metrics.{}.variables".format(metric_id)}},
-            {"$match": {"_id": {"$ne": None}}},
-            {"$project": {"_id": 0, "variables": "$_id"}}]
-        aggregation = aggregate_var(db_var, dashboards, pipeline_var)
+        if var_type == 'default':
+            # сбор тела запроса метрики из дефолтных настроек метрики
+            logger.info("job {} initiated by {} with {} logs".format(int(i), user, var_type))
+            pipeline_var_default = [
+                {"$match": {"deleted": {"$ne": True}}},
+                {"$group": {"_id": "$metrics.{}.variables".format(metric_id)}},
+                {"$match": {"_id": {"$ne": None}}},
+                {"$project": {"_id": 0, "variables": "$_id"}}]
+            aggregation = aggregate_var(db_var, dashboards, pipeline_var_default)
+
+        elif var_type == 'logs':
+            # сбор тела запроса метрики из логов
+            logger.info("job {} initiated by {} with {} logs".format(int(i), user, var_type))
+
+            aggregation = db_var['analytics-logs']['jobs'].find(
+                {"$and": [{'meta.parameters.metricData.dashboardId':"{}".format(dashboard)},
+                          {'meta.parameters.metricData.metricId':"{}".format(metric_id)},
+                          {'meta.state':"received"},
+                          {'meta.type':"metricData"},
+                          {'message':"Metric data"}]},
+                {'_id':0,'meta.parameters.metricData.variables':1}).sort('timestamp',-1).limit(1)
+
+            temp_var = list(aggregation)
+
+            if temp_var  != []:
+                aggregation = list(temp_var)[0]['meta']['parameters']['metricData']
+            else:
+                aggregation = {'variables':[]}
+        else:
+                aggregation = {'variables':[]}
 
         # формирование тела запроса метрики
         body = {"__content": {"type": "metricData",
