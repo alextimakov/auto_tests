@@ -32,12 +32,14 @@ def aggregate_var(db, collection, pipeline):
     :param (str) db: DB name
     :param (str) collection: Collection name
     :param (list) pipeline: each pipeline stage is a dict in format {"$method": "query"}
-    :return (pandas.core.frame.DataFrame): returns DataFrame with queried data from selected collection
+    :return (dict): returns dict with {'variables: []}
     """
 
     cursor = db[collection].aggregate(pipeline)
-    result = list(cursor)[0]
-    return result
+    try:
+        return list(cursor)[0]
+    except IndexError:
+        return {'variables': []}
 
 
 def mongo_request(db, collection, pipeline, *fields):
@@ -141,10 +143,36 @@ def run_sso_session(sso, user, password, logger, add_cookies=True, custom_header
     return session
 
 
-def collect_parameters():
+def collect_parameters(i, dashboard_id, metric_id, logger, user, db_var, dashboards, var_type):
     # add check for defaultValueAsQuery
     # check for defaultQuery type and run script depending on type
-    return 1
+    if var_type == 'default':
+        # сбор тела запроса метрики из дефолтных настроек метрики
+        logger.info("{} metric {} initiated by {} with {} vars".format(i, metric_id, user, var_type))
+        pipeline_var_default = [{"$match": {"deleted": {"$ne": True}}},
+            {"$group": {"_id": "$metrics.{}.variables".format(metric_id)}}, {"$match": {"_id": {"$ne": None}}},
+            {"$project": {"_id": 0, "variables": "$_id"}}]
+        aggregation = aggregate_var(db_var, dashboards, pipeline_var_default)
+
+    elif var_type == 'logs':
+        # сбор тела запроса метрики из логов
+        logger.info("{} metric {} initiated by {} with {} vars".format(i, metric_id, user, var_type))
+
+        aggregation = db_var['analytics-logs']['jobs'].find({
+            "$and": [{'meta.parameters.metricData.dashboardId': "{}".format(dashboard_id)},
+                     {'meta.parameters.metricData.metricId': "{}".format(metric_id)}, {'meta.state': "received"},
+                     {'meta.type': "metricData"}, {'message': "Metric data"}]},
+            {'_id': 0, 'meta.parameters.metricData.variables': 1}).sort('timestamp', -1).limit(1)
+
+        temp_var = list(aggregation)
+
+        if temp_var:
+            aggregation = list(temp_var)[0]['meta']['parameters']['metricData']
+        else:
+            aggregation = {'variables': []}
+    else:
+        aggregation = {'variables': []}
+    return aggregation
 
 
 def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_var, dashboards,
@@ -152,11 +180,11 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
     """
     Key function to start and poll metrics on selected instance via API
 
-    :param var_type: variables use from "logs" or "default"
+    :param (str) var_type: variables use from "logs" or "default"
     :param (pandas.core.frame.DataFrame) data_frame: existing metrics from prod
     :param (str) sso: url to sso
     :param (str) api: url to api
-    :param (str) website: dns
+    :param (str) website: DNS
     :param user: username
     :param password: password
     :param (str) prefix: prefix like 'prod' or 'qa'
@@ -171,43 +199,14 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
     session = run_sso_session(sso, user, password, logger, add_cookies, custom_headers, headers)
     result = pd.DataFrame()
     for i in range(0, data_frame.shape[0]):
-        dashboard = data_frame.loc[i, 'dashboard_id']
+        dashboard_id = data_frame.loc[i, 'dashboard_id']
         metric_id = data_frame.loc[i, 'metric_id']
 
-        if var_type == 'default':
-            # сбор тела запроса метрики из дефолтных настроек метрики
-            logger.info("job {} initiated by {} with {} logs".format(int(i), user, var_type))
-            pipeline_var_default = [
-                {"$match": {"deleted": {"$ne": True}}},
-                {"$group": {"_id": "$metrics.{}.variables".format(metric_id)}},
-                {"$match": {"_id": {"$ne": None}}},
-                {"$project": {"_id": 0, "variables": "$_id"}}]
-            aggregation = aggregate_var(db_var, dashboards, pipeline_var_default)
-
-        elif var_type == 'logs':
-            # сбор тела запроса метрики из логов
-            logger.info("job {} initiated by {} with {} logs".format(int(i), user, var_type))
-
-            aggregation = db_var['analytics-logs']['jobs'].find(
-                {"$and": [{'meta.parameters.metricData.dashboardId':"{}".format(dashboard)},
-                          {'meta.parameters.metricData.metricId':"{}".format(metric_id)},
-                          {'meta.state':"received"},
-                          {'meta.type':"metricData"},
-                          {'message':"Metric data"}]},
-                {'_id':0,'meta.parameters.metricData.variables':1}).sort('timestamp',-1).limit(1)
-
-            temp_var = list(aggregation)
-
-            if temp_var  != []:
-                aggregation = list(temp_var)[0]['meta']['parameters']['metricData']
-            else:
-                aggregation = {'variables':[]}
-        else:
-                aggregation = {'variables':[]}
+        aggregation = collect_parameters(i, dashboard_id, metric_id, logger, user, db_var, dashboards, var_type)
 
         # формирование тела запроса метрики
         body = {"__content": {"type": "metricData",
-                              "parameters": {"dashboardId": "{}".format(dashboard),
+                              "parameters": {"dashboardId": "{}".format(dashboard_id),
                                              "metricId": "{}".format(metric_id),
                                              "variables": aggregation['variables']}}}
 
@@ -217,22 +216,21 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
         except requests.exceptions.Timeout:
             start_job = 'start_job_timeout'
             logger.info('{} at metric {}'.format(start_job, metric_id))
-            result = write_results(result, i, dashboard, metric_id, str(start_job), 0, 400, website, prefix)
+            result = write_results(result, i, dashboard_id, metric_id, str(start_job), 0, 400, website, prefix)
             break
         logger.info("metric {} run with code {} by {}".format(metric_id, int(start_job.status_code), user))
         if int(start_job.status_code) in [403, 500]:
             logger.info("metric {} failed with code {}".format(metric_id, int(start_job.status_code)))
-            result = write_results(result, i, dashboard, metric_id, str(start_job.text), 0, int(start_job.status_code),
+            result = write_results(result, i, dashboard_id, metric_id, str(start_job.text), 0, int(start_job.status_code),
                 website, prefix)
         elif int(start_job.status_code) in [404, 502]:
             logger.info("metric {} failed with code {}".format(metric_id, int(start_job.status_code)))
-            result = write_results(result, i, dashboard, metric_id, str(start_job.text), 0, int(start_job.status_code),
+            result = write_results(result, i, dashboard_id, metric_id, str(start_job.text), 0, int(start_job.status_code),
                 website, prefix)
-            sleep(180)
+            sleep(120)
         else:
             try:
                 job = start_job.json()['id']
-                # job = json.loads(start_job.text)['id']
             except json.decoder.JSONDecodeError:
                 try:
                     logger.info("metric {} failed with code {}".format(metric_id, int(start_job.status_code)))
@@ -242,12 +240,12 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
 
             # Получение ответа на запрос
             sleeper = time()
+            poll_job = 'poll_job_timeout'
             while time()-sleeper <= 121:
                 try:
                     poll_job = session.get(api+'pollJob/'+job, timeout=(12, 20))
                     logger.info("metric {} polled with code {}".format(metric_id, int(poll_job.status_code)))
                 except requests.exceptions.ReadTimeout or requests.exceptions.ConnectionError:
-                    poll_job = 'poll_job_timeout'
                     logger.info('{} at metric {}'.format(poll_job, metric_id))
                     break
                 if int(poll_job.status_code) != 204:
@@ -261,7 +259,7 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
             else:
                 text = read_poll_job(poll_job)
                 status_code = int(poll_job.status_code)
-            result = write_results(result, i, dashboard, metric_id, text, int(time()-sleeper), status_code, website,
+            result = write_results(result, i, dashboard_id, metric_id, text, int(time()-sleeper), status_code, website,
                                    prefix)
     return result
 
