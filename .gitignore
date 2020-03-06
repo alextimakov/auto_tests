@@ -120,3 +120,6 @@ auto_tests/config.py
 
 # midnight logs
 *.log.*
+
+# tests
+./tests/
