@@ -5,7 +5,7 @@
 1. Склонируйте проект в нужную папку: 
 
 ```bash
-git clone https://github.com/alextimakov/auto_tests.git
+git clone https://gitlab.biocad.ru/biocad/dis/ddma/auto_tests.git
 ```
 
 
@@ -56,6 +56,14 @@ python .\auto_tests\main.py -l your_login -t True -- запуск с указа�
 
 - Работает и в случае с прямой установкой через pip, так и через `pip-sync`
 
+#### Ошибка "Can't connect to HTTPS URL because the SSL module is not available."
+- Убедитесь, что в переменной PATH содержатся:
+```
+<path>\Anaconda3
+<path>\Anaconda3\Scripts
+<path>\Anaconda3\Library\bin
+```
+- После добавления их, обязателен перезапуск командной строки \ IDE
 
 ### Правила работы над проектом
 1. Все адреса, логины и пароли тянутся из `config.py`. 

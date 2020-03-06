@@ -122,4 +122,8 @@ auto_tests/config.py
 *.log.*
 
 # tests
-./tests/
+tests/*
+
+# exception to the rule
+!tests/.gitkeep
+!tests/test_sample.py
