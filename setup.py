@@ -18,8 +18,8 @@ setup(
         'Programming Language :: Python :: 3',
     ],
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),  # Required
-    python_requires='>=3.5, <4',  # Required
-    install_requires=['pandas', 'pymongo', 'requests', 'flake8', 'bson', 'python-keycloak'],  # Optional
+    python_requires='>=3.6, <4',  # Required
+    install_requires=['pandas', 'pymongo', 'requests', 'flake8', 'bson', 'python-keycloak', 'openpyxl'],  # Optional
     entry_points={  # Optional
         'console_scripts': [
             'auto_tests=auto_tests:main',

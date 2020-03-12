@@ -36,12 +36,14 @@ pip-sync
 ```bash
 -l login -- введите логин, если он отличается от системного
 -p password -- введите пароль, сделано для удобства запуска из shell
--t test_mode -- если True, то ограничивает кол-во запускаемых метрик до 3-х
+-t test_mode -- если НЕ указан, то ограничивает кол-во запускаемых метрик до 3-х
+-e save_to_excel -- если указан, то сохраняет результат в Excel файл 
+-m insert_to_mongo -- если указан, то записывает результаты в MongoDB
 
 python3 auto_tests/main.py -- для ubuntu
 python .\auto_tests\main.py -- для windows
 
-python .\auto_tests\main.py -l your_login -t True -- запуск с указанным логином в тестовом режиме
+python .\auto_tests\main.py -l your_login -t -- запуск с указанным логином в тестовом режиме
 ```
 
 
