@@ -1,4 +1,5 @@
-import sys, os
+import sys
+import os
 sys.path.append(os.path.abspath('.'))
 
 import auto_tests.functions as functions
@@ -18,6 +19,7 @@ import logging.config
 # TODO: использовать асинхронные запросы или через мультипроцессинг
 # TODO: изменить выбор defaultValue - в случае если defaultValueAsQuery = true
 # TODO: добавить чёрный лист по дашбордам
+# TODO: переписать на классы (класс "Авто тест")
 
 
 # set up logging
@@ -39,24 +41,28 @@ def main():
     df_processor = functions.mongo_request(config.db_prod, config.collection_dashboards, scripts.pipeline_processor)
 
     # dfs to run tests upon
-    df_prod = {'sso': config.sso_prod, 'api': config.api_prod, 'website': config.site_prod, 'user': login,
+    df_prod = {'sso': config.sso_prod_test, 'api': config.api_prod_test, 'website': config.site_prod_test,
+                'user': login, 'password': password, 'prefix': 'prod_test', 'logger': logger,
+                'db_var': config.db_prod, 'dashboards': config.collection_dashboards, 'add_cookies': False,
+                'custom_headers': False, 'headers': {}, 'var_type': 'default', 'keycloak': True}
+    df_prod_old = {'sso': config.sso_prod, 'api': config.api_prod, 'website': config.site_prod, 'user': login,
         'password': password, 'prefix': 'prod', 'logger': logger, 'db_var': config.db_prod,
         'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': False, 'headers': {},
         'var_type': 'logs'}
-    df_qa = {'sso': config.sso_qa, 'api': config.api_qa, 'website': config.site_qa, 'user': login,
+    df_qa_old = {'sso': config.sso_qa, 'api': config.api_qa, 'website': config.site_qa, 'user': login,
         'password': password, 'prefix': 'qa', 'logger': logger, 'db_var': config.db_qa,
         'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': False, 'headers': {},
         'var_type': 'default'}
-    df_cluster = {'sso': config.sso_cluster, 'api': config.api_cluster, 'website': config.site_cluster,
+    df_cluster_old = {'sso': config.sso_cluster, 'api': config.api_cluster, 'website': config.site_cluster,
         'user': config.user_cluster, 'password': config.password_cluster, 'prefix': 'cluster', 'logger': logger,
-        'db_var': config.db_cluster, 'dashboards': config.collection_dashboards, 'add_cookies': True, 'custom_headers': True,
-        'headers': config.headers_cluster, 'var_type': 'default'}
-    dfs = [df_prod, df_qa, df_cluster]
+        'db_var': config.db_cluster, 'dashboards': config.collection_dashboards, 'add_cookies': True,
+                  'custom_headers': True, 'headers': config.headers_cluster, 'var_type': 'default'}
+    dfs = [df_prod]  #  df_cluster, df_prod_test, df_prod_test_2, df_qa
 
     # limit amount of source data for test
     if test_mode:
-        df = df.iloc[:50, :].copy()
-        df_processor = df_processor.iloc[:50, :].copy()
+        df = df.iloc[:3, :].copy()
+        df_processor = df_processor.iloc[:3, :].copy()
 
     # check for existing metric_id before updating
     if insert_to_mongo:

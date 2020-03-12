@@ -1,9 +1,15 @@
+import sys
+import os
+sys.path.append(os.path.abspath('.'))
+
+import auto_tests.config as config
 import pandas as pd
 import requests.cookies
 import json
+from keycloak import KeycloakOpenID
 from time import sleep, time
 from datetime import datetime
-from pandas.io.json import json_normalize
+from pandas import json_normalize
 from bson.errors import InvalidDocument
 from pymongo.errors import WriteError
 from argparse import ArgumentParser
@@ -14,7 +20,7 @@ def aggregate_dash(db, collection, pipeline):
     """
     Run aggregate query on selected collection from MongoDB and return it as Pandas DataFrame.
 
-    :param (str) db: DB name
+    :param (pymongo.database.Database) db: DB name
     :param (str) collection: Collection name
     :param (list) pipeline: each pipeline stage is a dict in format {"$method": "query"}
     :return (pandas.core.frame.DataFrame): returns DataFrame with queried data from selected collection
@@ -29,7 +35,7 @@ def aggregate_var(db, collection, pipeline):
     """
     Run aggregate query on selected collection from MongoDB and return it as Pandas DataFrame.
 
-    :param (str) db: DB name
+    :param (pymongo.database.Database) db: DB name
     :param (str) collection: Collection name
     :param (list) pipeline: each pipeline stage is a dict in format {"$method": "query"}
     :return (dict): returns dict with {'variables: []}
@@ -64,7 +70,7 @@ def read_mongo(db, collection, query=None, output=None, no_id=False):
     """
     Read selected collection from MongoDB and return it as Pandas DataFrame.
 
-    :param (str) db: DB name
+    :param (pymongo.database.Database) db: DB name
     :param (str) collection: Collection name
     :param (dict) query: Query to documents in selected collection, like in db.collection.find(query)
     :param (dict) output: Select needed fields of selected documents
@@ -176,7 +182,7 @@ def collect_parameters(i, dashboard_id, metric_id, logger, user, db_var, dashboa
 
 
 def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_var, dashboards,
-              add_cookies, custom_headers, headers, var_type='default'):
+              add_cookies, custom_headers, headers, var_type='default', keycloak=False):
     """
     Key function to start and poll metrics on selected instance via API
 
@@ -194,9 +200,21 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
     :param (bool) add_cookies: if True then add '_currentUser' and 'roles' cookies
     :param (bool) custom_headers: if True then add custom headers
     :param (dict) headers: dictionary with custom headers
+    :param (bool) keycloak: if keycloak authorization is active
     :return:
     """
-    session = run_sso_session(sso, user, password, logger, add_cookies, custom_headers, headers)
+    if keycloak:
+        keycloak_openid = KeycloakOpenID(
+            server_url=config.server_url,
+            client_id=config.client_id,
+            realm_name=config.realm_name,
+            client_secret_key=config.client_secret_key)
+        token = keycloak_openid.token(user.split('@')[0], password)
+        headers = {'Authorization': 'Bearer {}'.format(str(token['access_token']))}
+        session = requests.Session()
+        session.headers.update(headers)
+    else:
+        session = run_sso_session(sso, user, password, logger, add_cookies, custom_headers, headers)
     result = pd.DataFrame()
     for i in range(0, data_frame.shape[0]):
         dashboard_id = data_frame.loc[i, 'dashboard_id']
@@ -217,6 +235,7 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
             start_job = 'start_job_timeout'
             logger.info('{} at metric {}'.format(start_job, metric_id))
             result = write_results(result, i, dashboard_id, metric_id, str(start_job), 0, 400, website, prefix)
+            sleep(120)
             break
         logger.info("metric {} run with code {} by {}".format(metric_id, int(start_job.status_code), user))
         if int(start_job.status_code) in [403, 500]:
@@ -247,6 +266,7 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
                     logger.info("metric {} polled with code {}".format(metric_id, int(poll_job.status_code)))
                 except requests.exceptions.ReadTimeout or requests.exceptions.ConnectionError:
                     logger.info('{} at metric {}'.format(poll_job, metric_id))
+                    sleep(120)
                     break
                 if int(poll_job.status_code) != 204:
                     logger.info("metric {} polled with code {} in {} sec".format(metric_id, int(poll_job.status_code),
@@ -265,6 +285,15 @@ def auto_test(data_frame, sso, api, website, user, password, prefix, logger, db_
 
 
 def insert_test_results(db, collection, df, condition):
+    """
+    check for existing metric_id before updating - in order to prevent duplicates
+
+    :param (pymongo.database.Database) db: DB name
+    :param (str) collection: Collection name
+    :param (pandas.core.frame.DataFrame) df: df with ids to be inserted
+    :param (str) condition: attribute to merge ids on
+    :return: None
+    """
     unique_metrics = df[condition].unique().tolist()
     for instance in unique_metrics:
         for column in df.loc[df[condition] == instance]:
