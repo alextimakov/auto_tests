@@ -28,4 +28,4 @@ pytz==2019.3              # via pandas
 requests==2.22.0
 rsa==4.0                  # via python-jose
 six==1.14.0               # via bson, ecdsa, python-dateutil, python-jose
-urllib3==1.25.8           # via requests
+urllib3==1.26.5           # via requests
