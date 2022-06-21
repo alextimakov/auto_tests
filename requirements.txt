@@ -14,7 +14,7 @@ flake8==3.7.9
 idna==2.8                 # via requests
 jdcal==1.4.1              # via openpyxl
 mccabe==0.6.1             # via flake8
-numpy==1.18.1             # via pandas
+numpy==1.22.0             # via pandas
 openpyxl==3.0.3
 pandas==1.0.1
 pyasn1==0.4.8             # via python-jose, rsa
