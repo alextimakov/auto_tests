@@ -5,7 +5,7 @@
 #    pip-compile
 #
 bson==0.5.9
-certifi==2019.11.28       # via requests
+certifi==2022.12.7       # via requests
 chardet==3.0.4            # via requests
 ecdsa==0.15               # via python-jose
 entrypoints==0.3          # via flake8
